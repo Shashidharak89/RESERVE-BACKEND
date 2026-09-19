@@ -75,6 +75,15 @@ public class FileController {
         return ResponseEntity.ok(ApiResponse.success("File moved successfully", response));
     }
 
+    @PostMapping("/copy/{id}")
+    public ResponseEntity<ApiResponse<FileResponse>> copySharedFile(@PathVariable Long id,
+                                                                    @RequestBody(required = false) FileMoveRequest request,
+                                                                    @AuthenticationPrincipal UserPrincipal currentUser) {
+        FileResponse response = fileService.copySharedFileToPrivate(id, request, currentUser);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("File copied to your private vault", response));
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<Void>> deleteFile(@PathVariable Long id,
                                                          @AuthenticationPrincipal UserPrincipal currentUser) {

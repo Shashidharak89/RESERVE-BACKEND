@@ -44,10 +44,10 @@ public class FileService {
     }
 
     private FileResponse uploadFileInternal(MultipartFile file, Long folderId, StorageType storageType, UserPrincipal currentUserPrincipal) {
-        User currentUser = authService.getCurrentUserEntity(currentUserPrincipal);
+        User currentUser = currentUserPrincipal != null ? authService.getCurrentUserEntity(currentUserPrincipal) : null;
 
         Folder folder = null;
-        if (folderId != null && storageType == StorageType.PRIVATE) {
+        if (folderId != null && storageType == StorageType.PRIVATE && currentUser != null) {
             folder = folderRepository.findByIdAndUserId(folderId, currentUser.getId())
                     .orElseThrow(() -> new ResourceNotFoundException("Folder not found or access denied"));
         }
@@ -76,6 +76,35 @@ public class FileService {
         return mapToFileResponse(saved);
     }
 
+    @Transactional
+    public FileResponse copySharedFileToPrivate(Long fileId, FileMoveRequest request, UserPrincipal currentUserPrincipal) {
+        User currentUser = authService.getCurrentUserEntity(currentUserPrincipal);
+        FileItem sharedFile = fileItemRepository.findByIdAndStorageType(fileId, StorageType.SHARED_UPLOADS)
+                .orElseThrow(() -> new ResourceNotFoundException("Shared file not found"));
+
+        Folder targetFolder = null;
+        if (request != null && request.getTargetFolderId() != null) {
+            targetFolder = folderRepository.findByIdAndUserId(request.getTargetFolderId(), currentUser.getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Target folder not found or access denied"));
+        }
+
+        FileItem copiedFile = FileItem.builder()
+                .originalFilename(sharedFile.getOriginalFilename())
+                .storedFilename(sharedFile.getStoredFilename())
+                .mimeType(sharedFile.getMimeType())
+                .fileSize(sharedFile.getFileSize())
+                .cloudinaryUrl(sharedFile.getCloudinaryUrl())
+                .cloudinaryPublicId(sharedFile.getCloudinaryPublicId())
+                .resourceType(sharedFile.getResourceType())
+                .storageType(StorageType.PRIVATE)
+                .folder(targetFolder)
+                .user(currentUser)
+                .build();
+
+        FileItem saved = fileItemRepository.save(copiedFile);
+        return mapToFileResponse(saved);
+    }
+
     @Transactional(readOnly = true)
     public List<FileResponse> getUserPrivateFiles(Long folderId, String search, UserPrincipal currentUserPrincipal) {
         Long userId = currentUserPrincipal.getId();
@@ -95,7 +124,7 @@ public class FileService {
     }
 
     @Transactional(readOnly = true)
-    public List<FileResponse> getSharedFiles(String search, UserPrincipal currentUserPrincipal) {
+    public List<FileResponse> getSharedFiles(String search) {
         List<FileItem> files;
         if (StringUtils.hasText(search)) {
             files = fileItemRepository.searchSharedFiles(StorageType.SHARED_UPLOADS, search.trim());
@@ -144,7 +173,7 @@ public class FileService {
                 .orElseThrow(() -> new ResourceNotFoundException("File not found or access denied"));
 
         if (fileItem.getStorageType() != StorageType.PRIVATE) {
-            throw new BadRequestException("Shared files cannot be moved to private folders");
+            throw new BadRequestException("Shared files cannot be moved to private folders. Use copy instead.");
         }
 
         Folder targetFolder = null;
@@ -179,8 +208,8 @@ public class FileService {
                 .resourceType(file.getResourceType())
                 .storageType(file.getStorageType())
                 .folderId(file.getFolder() != null ? file.getFolder().getId() : null)
-                .ownerId(file.getUser().getId())
-                .ownerName(file.getUser().getName())
+                .ownerId(file.getUser() != null ? file.getUser().getId() : null)
+                .ownerName(file.getUser() != null ? file.getUser().getName() : "Public Uploader")
                 .createdAt(file.getCreatedAt())
                 .updatedAt(file.getUpdatedAt())
                 .build();

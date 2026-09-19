@@ -31,9 +31,8 @@ public class SharedUploadController {
     }
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<FileResponse>>> getSharedFiles(@RequestParam(value = "search", required = false) String search,
-                                                                           @AuthenticationPrincipal UserPrincipal currentUser) {
-        List<FileResponse> files = fileService.getSharedFiles(search, currentUser);
+    public ResponseEntity<ApiResponse<List<FileResponse>>> getSharedFiles(@RequestParam(value = "search", required = false) String search) {
+        List<FileResponse> files = fileService.getSharedFiles(search);
         return ResponseEntity.ok(ApiResponse.success("Shared files retrieved successfully", files));
     }
 

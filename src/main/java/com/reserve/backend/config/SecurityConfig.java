@@ -49,9 +49,9 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/register", "/api/auth/login").permitAll()
+                        .requestMatchers("/api/auth/register", "/api/auth/login", "/api/uploads/**").permitAll()
                         .requestMatchers("/error").permitAll()
-                        .requestMatchers("/api/folders/**", "/api/files/**", "/api/uploads/**", "/api/auth/me").authenticated()
+                        .requestMatchers("/api/folders/**", "/api/files/**", "/api/auth/me").authenticated()
                         .anyRequest().authenticated()
                 );
 
