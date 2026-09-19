@@ -114,8 +114,8 @@ public class FileService {
     @Transactional
     public FileResponse copySharedFileToPrivate(Long fileId, FileMoveRequest request, UserPrincipal currentUserPrincipal) {
         User currentUser = authService.getCurrentUserEntity(currentUserPrincipal);
-        FileItem sharedFile = fileItemRepository.findByIdAndStorageType(fileId, StorageType.SHARED_UPLOADS)
-                .orElseThrow(() -> new ResourceNotFoundException("Shared file not found"));
+        FileItem sharedFile = fileItemRepository.findById(fileId)
+                .orElseThrow(() -> new ResourceNotFoundException("File not found"));
 
         Folder targetFolder = null;
         if (request != null && request.getTargetFolderId() != null) {
@@ -243,6 +243,9 @@ public class FileService {
         }
 
         fileItem.setOriginalFilename(newName);
+        if (request.getStorageType() != null) {
+            fileItem.setStorageType(request.getStorageType());
+        }
         FileItem updated = fileItemRepository.save(fileItem);
         return mapToFileResponse(updated);
     }
