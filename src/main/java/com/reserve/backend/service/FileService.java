@@ -1,0 +1,188 @@
+package com.reserve.backend.service;
+
+import com.reserve.backend.dto.FileMoveRequest;
+import com.reserve.backend.dto.FileResponse;
+import com.reserve.backend.dto.FileUpdateRequest;
+import com.reserve.backend.entity.FileItem;
+import com.reserve.backend.entity.Folder;
+import com.reserve.backend.entity.StorageType;
+import com.reserve.backend.entity.User;
+import com.reserve.backend.exception.BadRequestException;
+import com.reserve.backend.exception.ResourceNotFoundException;
+import com.reserve.backend.repository.FileItemRepository;
+import com.reserve.backend.repository.FolderRepository;
+import com.reserve.backend.security.UserPrincipal;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class FileService {
+
+    private final FileItemRepository fileItemRepository;
+    private final FolderRepository folderRepository;
+    private final AuthService authService;
+    private final CloudinaryService cloudinaryService;
+
+    @Transactional
+    public FileResponse uploadPrivateFile(MultipartFile file, Long folderId, UserPrincipal currentUserPrincipal) {
+        return uploadFileInternal(file, folderId, StorageType.PRIVATE, currentUserPrincipal);
+    }
+
+    @Transactional
+    public FileResponse uploadSharedFile(MultipartFile file, UserPrincipal currentUserPrincipal) {
+        return uploadFileInternal(file, null, StorageType.SHARED_UPLOADS, currentUserPrincipal);
+    }
+
+    private FileResponse uploadFileInternal(MultipartFile file, Long folderId, StorageType storageType, UserPrincipal currentUserPrincipal) {
+        User currentUser = authService.getCurrentUserEntity(currentUserPrincipal);
+
+        Folder folder = null;
+        if (folderId != null && storageType == StorageType.PRIVATE) {
+            folder = folderRepository.findByIdAndUserId(folderId, currentUser.getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Folder not found or access denied"));
+        }
+
+        Map<String, Object> uploadResult = cloudinaryService.uploadFile(file);
+
+        String cloudinaryUrl = (String) uploadResult.get("secure_url");
+        String publicId = (String) uploadResult.get("public_id");
+        String resourceType = (String) uploadResult.get("resource_type");
+        String originalFilename = StringUtils.cleanPath(file.getOriginalFilename() != null ? file.getOriginalFilename() : "unnamed_file");
+
+        FileItem fileItem = FileItem.builder()
+                .originalFilename(originalFilename)
+                .storedFilename(publicId)
+                .mimeType(file.getContentType())
+                .fileSize(file.getSize())
+                .cloudinaryUrl(cloudinaryUrl)
+                .cloudinaryPublicId(publicId)
+                .resourceType(resourceType)
+                .storageType(storageType)
+                .folder(folder)
+                .user(currentUser)
+                .build();
+
+        FileItem saved = fileItemRepository.save(fileItem);
+        return mapToFileResponse(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public List<FileResponse> getUserPrivateFiles(Long folderId, String search, UserPrincipal currentUserPrincipal) {
+        Long userId = currentUserPrincipal.getId();
+
+        List<FileItem> files;
+        if (StringUtils.hasText(search)) {
+            files = fileItemRepository.searchPrivateFiles(userId, StorageType.PRIVATE, search.trim());
+        } else if (folderId != null) {
+            files = fileItemRepository.findByUserIdAndStorageTypeAndFolderIdOrderByOriginalFilenameAsc(userId, StorageType.PRIVATE, folderId);
+        } else {
+            files = fileItemRepository.findByUserIdAndStorageTypeAndFolderIsNullOrderByOriginalFilenameAsc(userId, StorageType.PRIVATE);
+        }
+
+        return files.stream()
+                .map(this::mapToFileResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<FileResponse> getSharedFiles(String search, UserPrincipal currentUserPrincipal) {
+        List<FileItem> files;
+        if (StringUtils.hasText(search)) {
+            files = fileItemRepository.searchSharedFiles(StorageType.SHARED_UPLOADS, search.trim());
+        } else {
+            files = fileItemRepository.findByStorageTypeOrderByCreatedAtDesc(StorageType.SHARED_UPLOADS);
+        }
+
+        return files.stream()
+                .map(this::mapToFileResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public FileResponse getPrivateFileDetails(Long fileId, UserPrincipal currentUserPrincipal) {
+        FileItem fileItem = fileItemRepository.findByIdAndUserId(fileId, currentUserPrincipal.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("File not found or access denied"));
+        return mapToFileResponse(fileItem);
+    }
+
+    @Transactional(readOnly = true)
+    public FileResponse getSharedFileDetails(Long fileId) {
+        FileItem fileItem = fileItemRepository.findByIdAndStorageType(fileId, StorageType.SHARED_UPLOADS)
+                .orElseThrow(() -> new ResourceNotFoundException("Shared file not found"));
+        return mapToFileResponse(fileItem);
+    }
+
+    @Transactional
+    public FileResponse renameFile(Long fileId, FileUpdateRequest request, UserPrincipal currentUserPrincipal) {
+        FileItem fileItem = fileItemRepository.findByIdAndUserId(fileId, currentUserPrincipal.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("File not found or access denied"));
+
+        String newName = request.getName().trim();
+        if (newName.isEmpty()) {
+            throw new BadRequestException("Filename cannot be empty");
+        }
+
+        fileItem.setOriginalFilename(newName);
+        FileItem updated = fileItemRepository.save(fileItem);
+        return mapToFileResponse(updated);
+    }
+
+    @Transactional
+    public FileResponse moveFile(Long fileId, FileMoveRequest request, UserPrincipal currentUserPrincipal) {
+        Long userId = currentUserPrincipal.getId();
+        FileItem fileItem = fileItemRepository.findByIdAndUserId(fileId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("File not found or access denied"));
+
+        if (fileItem.getStorageType() != StorageType.PRIVATE) {
+            throw new BadRequestException("Shared files cannot be moved to private folders");
+        }
+
+        Folder targetFolder = null;
+        if (request.getTargetFolderId() != null) {
+            targetFolder = folderRepository.findByIdAndUserId(request.getTargetFolderId(), userId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Target folder not found or access denied"));
+        }
+
+        fileItem.setFolder(targetFolder);
+        FileItem updated = fileItemRepository.save(fileItem);
+        return mapToFileResponse(updated);
+    }
+
+    @Transactional
+    public void deletePrivateFile(Long fileId, UserPrincipal currentUserPrincipal) {
+        FileItem fileItem = fileItemRepository.findByIdAndUserId(fileId, currentUserPrincipal.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("File not found or access denied"));
+
+        cloudinaryService.deleteFile(fileItem.getCloudinaryPublicId(), fileItem.getResourceType());
+        fileItemRepository.delete(fileItem);
+    }
+
+    public FileResponse mapToFileResponse(FileItem file) {
+        return FileResponse.builder()
+                .id(file.getId())
+                .originalFilename(file.getOriginalFilename())
+                .storedFilename(file.getStoredFilename())
+                .mimeType(file.getMimeType())
+                .fileSize(file.getFileSize())
+                .cloudinaryUrl(file.getCloudinaryUrl())
+                .cloudinaryPublicId(file.getCloudinaryPublicId())
+                .resourceType(file.getResourceType())
+                .storageType(file.getStorageType())
+                .folderId(file.getFolder() != null ? file.getFolder().getId() : null)
+                .ownerId(file.getUser().getId())
+                .ownerName(file.getUser().getName())
+                .createdAt(file.getCreatedAt())
+                .updatedAt(file.getUpdatedAt())
+                .build();
+    }
+}
