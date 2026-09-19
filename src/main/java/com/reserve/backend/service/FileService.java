@@ -77,6 +77,41 @@ public class FileService {
     }
 
     @Transactional
+    public FileResponse uploadWebSocketBytes(byte[] fileBytes, String originalFilename, String mimeType, Long folderId, boolean isShared, UserPrincipal currentUserPrincipal) {
+        User currentUser = currentUserPrincipal != null ? authService.getCurrentUserEntity(currentUserPrincipal) : null;
+        StorageType storageType = isShared ? StorageType.SHARED_UPLOADS : StorageType.PRIVATE;
+
+        Folder folder = null;
+        if (folderId != null && storageType == StorageType.PRIVATE && currentUser != null) {
+            folder = folderRepository.findByIdAndUserId(folderId, currentUser.getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Folder not found or access denied"));
+        }
+
+        Map<String, Object> uploadResult = cloudinaryService.uploadFileBytes(fileBytes, originalFilename, mimeType);
+
+        String cloudinaryUrl = (String) uploadResult.get("secure_url");
+        String publicId = (String) uploadResult.get("public_id");
+        String resourceType = (String) uploadResult.get("resource_type");
+        String cleanName = StringUtils.cleanPath(originalFilename != null ? originalFilename : "unnamed_file");
+
+        FileItem fileItem = FileItem.builder()
+                .originalFilename(cleanName)
+                .storedFilename(publicId)
+                .mimeType(mimeType != null ? mimeType : "application/octet-stream")
+                .fileSize((long) fileBytes.length)
+                .cloudinaryUrl(cloudinaryUrl)
+                .cloudinaryPublicId(publicId)
+                .resourceType(resourceType)
+                .storageType(storageType)
+                .folder(folder)
+                .user(currentUser)
+                .build();
+
+        FileItem saved = fileItemRepository.save(fileItem);
+        return mapToFileResponse(saved);
+    }
+
+    @Transactional
     public FileResponse copySharedFileToPrivate(Long fileId, FileMoveRequest request, UserPrincipal currentUserPrincipal) {
         User currentUser = authService.getCurrentUserEntity(currentUserPrincipal);
         FileItem sharedFile = fileItemRepository.findByIdAndStorageType(fileId, StorageType.SHARED_UPLOADS)

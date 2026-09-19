@@ -46,6 +46,30 @@ public class CloudinaryService {
         }
     }
 
+    public Map<String, Object> uploadFileBytes(byte[] bytes, String originalFilename, String mimeType) {
+        if (bytes == null || bytes.length == 0) {
+            throw new BadRequestException("Failed to upload empty file bytes");
+        }
+
+        String resourceType = determineResourceType(mimeType, originalFilename);
+        String publicId = "reserve/" + UUID.randomUUID().toString();
+
+        try {
+            Map uploadParams = ObjectUtils.asMap(
+                    "public_id", publicId,
+                    "resource_type", resourceType,
+                    "overwrite", true
+            );
+
+            Map uploadResult = cloudinary.uploader().upload(bytes, uploadParams);
+            uploadResult.put("resource_type", resourceType);
+            return uploadResult;
+        } catch (IOException e) {
+            log.error("Cloudinary upload failed for file {}: {}", originalFilename, e.getMessage());
+            throw new BadRequestException("Could not upload file to Cloudinary: " + e.getMessage());
+        }
+    }
+
     public void deleteFile(String publicId, String resourceType) {
         try {
             Map deleteParams = ObjectUtils.asMap(
