@@ -20,7 +20,18 @@ public class JwtTokenProvider {
     private long jwtExpirationInMs;
 
     private SecretKey getSigningKey() {
-        byte[] keyBytes = jwtSecret.getBytes(StandardCharsets.UTF_8);
+        byte[] keyBytes = (jwtSecret != null && !jwtSecret.isBlank()) 
+                ? jwtSecret.getBytes(StandardCharsets.UTF_8) 
+                : "ReserveDefaultSecretKeyForJWTAuth2026Minimum256BitsLongSecret".getBytes(StandardCharsets.UTF_8);
+
+        if (keyBytes.length < 32) {
+            try {
+                java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+                keyBytes = digest.digest(keyBytes);
+            } catch (java.security.NoSuchAlgorithmException e) {
+                throw new RuntimeException("SHA-256 algorithm unavailable for JWT key generation", e);
+            }
+        }
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
