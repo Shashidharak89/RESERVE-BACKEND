@@ -41,18 +41,23 @@ public class FolderService {
             throw new BadRequestException("A folder with this name already exists in this location");
         }
 
+        com.reserve.backend.entity.Visibility visibility = "PUBLIC".equalsIgnoreCase(request.getVisibility()) 
+                ? com.reserve.backend.entity.Visibility.PUBLIC 
+                : com.reserve.backend.entity.Visibility.PRIVATE;
+
         Folder folder = Folder.builder()
                 .name(request.getName())
                 .user(currentUser)
                 .parentFolder(parentFolder)
+                .visibility(visibility)
                 .build();
 
         Folder saved = folderRepository.save(folder);
-        return mapToFolderResponse(saved, false);
+        return mapToFolderResponse(saved, false, currentUserPrincipal);
     }
 
     @Transactional(readOnly = true)
-    public List<FolderResponse> getUserFolders(Long parentId, UserPrincipal currentUserPrincipal) {
+    public List<FolderResponse> getUserFolders(Long parentId, String keyword, Integer order, Integer page, Integer limit, UserPrincipal currentUserPrincipal) {
         Long userId = currentUserPrincipal.getId();
         List<Folder> folders;
         if (parentId == null) {
@@ -60,9 +65,51 @@ public class FolderService {
         } else {
             folders = folderRepository.findByUserIdAndParentFolderIdOrderByNameAsc(userId, parentId);
         }
-        return folders.stream()
-                .map(f -> mapToFolderResponse(f, false))
+
+        List<FolderResponse> responseList = folders.stream()
+                .map(f -> mapToFolderResponse(f, false, currentUserPrincipal))
+                .filter(f -> !org.springframework.util.StringUtils.hasText(keyword) || f.getName().toLowerCase().contains(keyword.toLowerCase().trim()))
                 .collect(Collectors.toList());
+
+        sortFolders(responseList, order);
+        return paginateList(responseList, page, limit);
+    }
+
+    private void sortFolders(List<FolderResponse> list, Integer order) {
+        if (order == null) order = 3;
+        switch (order) {
+            case 1: // Name ASC
+                list.sort((a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+                break;
+            case 2: // Name DESC
+                list.sort((a, b) -> b.getName().compareToIgnoreCase(a.getName()));
+                break;
+            case 4: // Date ASC
+                list.sort((a, b) -> {
+                    if (a.getCreatedAt() == null || b.getCreatedAt() == null) return 0;
+                    return a.getCreatedAt().compareTo(b.getCreatedAt());
+                });
+                break;
+            case 3: // Date DESC (Default)
+            default:
+                list.sort((a, b) -> {
+                    if (a.getCreatedAt() == null || b.getCreatedAt() == null) return 0;
+                    return b.getCreatedAt().compareTo(a.getCreatedAt());
+                });
+                break;
+        }
+    }
+
+    private <T> List<T> paginateList(List<T> list, Integer page, Integer limit) {
+        if (page == null || page < 1) page = 1;
+        if (limit == null || limit < 1) limit = 20;
+
+        int fromIndex = (page - 1) * limit;
+        if (fromIndex >= list.size()) {
+            return List.of();
+        }
+        int toIndex = Math.min(fromIndex + limit, list.size());
+        return list.subList(fromIndex, toIndex);
     }
 
     @Transactional(readOnly = true)
@@ -71,7 +118,20 @@ public class FolderService {
         Folder folder = folderRepository.findByIdAndUserId(folderId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Folder not found or access denied"));
 
-        return mapToFolderResponse(folder, true);
+        return mapToFolderResponse(folder, true, currentUserPrincipal);
+    }
+
+    @Transactional(readOnly = true)
+    public FolderResponse getPublicFolderDetails(Long folderId, UserPrincipal currentUserPrincipal) {
+        Folder folder = folderRepository.findById(folderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Folder not found"));
+
+        boolean isOwner = currentUserPrincipal != null && folder.getUser().getId().equals(currentUserPrincipal.getId());
+        if (folder.getVisibility() != com.reserve.backend.entity.Visibility.PUBLIC && !isOwner) {
+            throw new ResourceNotFoundException("Folder not found or is private");
+        }
+
+        return mapToFolderResponse(folder, true, currentUserPrincipal);
     }
 
     @Transactional
@@ -86,8 +146,12 @@ public class FolderService {
         }
 
         folder.setName(newName);
+        if (request.getVisibility() != null) {
+            folder.setVisibility("PUBLIC".equalsIgnoreCase(request.getVisibility()) ? com.reserve.backend.entity.Visibility.PUBLIC : com.reserve.backend.entity.Visibility.PRIVATE);
+        }
+
         Folder updated = folderRepository.save(folder);
-        return mapToFolderResponse(updated, false);
+        return mapToFolderResponse(updated, false, currentUserPrincipal);
     }
 
     @Transactional
@@ -105,7 +169,6 @@ public class FolderService {
             targetParent = folderRepository.findByIdAndUserId(request.getTargetParentId(), userId)
                     .orElseThrow(() -> new ResourceNotFoundException("Target folder not found or access denied"));
 
-            // Prevent circular nesting
             Folder current = targetParent;
             while (current != null) {
                 if (current.getId().equals(folderId)) {
@@ -117,7 +180,7 @@ public class FolderService {
 
         folder.setParentFolder(targetParent);
         Folder updated = folderRepository.save(folder);
-        return mapToFolderResponse(updated, false);
+        return mapToFolderResponse(updated, false, currentUserPrincipal);
     }
 
     @Transactional
@@ -126,7 +189,6 @@ public class FolderService {
         Folder folder = folderRepository.findByIdAndUserId(folderId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Folder not found or access denied"));
 
-        // Recursively clean up Cloudinary resources
         deleteFolderCloudinaryResources(folder);
         folderRepository.delete(folder);
     }
@@ -144,12 +206,16 @@ public class FolderService {
         }
     }
 
-    public FolderResponse mapToFolderResponse(Folder folder, boolean includeContents) {
+    public FolderResponse mapToFolderResponse(Folder folder, boolean includeContents, UserPrincipal currentUserPrincipal) {
+        boolean isOwner = currentUserPrincipal != null && folder.getUser() != null && folder.getUser().getId().equals(currentUserPrincipal.getId());
+
         FolderResponse response = FolderResponse.builder()
                 .id(folder.getId())
                 .name(folder.getName())
                 .parentId(folder.getParentFolder() != null ? folder.getParentFolder().getId() : null)
                 .parentName(folder.getParentFolder() != null ? folder.getParentFolder().getName() : null)
+                .visibility(folder.getVisibility())
+                .isOwner(isOwner)
                 .createdAt(folder.getCreatedAt())
                 .updatedAt(folder.getUpdatedAt())
                 .build();
@@ -157,7 +223,7 @@ public class FolderService {
         if (includeContents) {
             if (folder.getSubFolders() != null) {
                 response.setSubFolders(folder.getSubFolders().stream()
-                        .map(sf -> mapToFolderResponse(sf, false))
+                        .map(sf -> mapToFolderResponse(sf, false, currentUserPrincipal))
                         .collect(Collectors.toList()));
             }
             if (folder.getFiles() != null) {
@@ -181,8 +247,8 @@ public class FolderService {
                 .resourceType(file.getResourceType())
                 .storageType(file.getStorageType())
                 .folderId(file.getFolder() != null ? file.getFolder().getId() : null)
-                .ownerId(file.getUser().getId())
-                .ownerName(file.getUser().getName())
+                .ownerId(file.getUser() != null ? file.getUser().getId() : null)
+                .ownerName(file.getUser() != null ? file.getUser().getName() : "Public Uploader")
                 .createdAt(file.getCreatedAt())
                 .updatedAt(file.getUpdatedAt())
                 .build();

@@ -106,35 +106,81 @@ public class FileService {
     }
 
     @Transactional(readOnly = true)
-    public List<FileResponse> getUserPrivateFiles(Long folderId, String search, UserPrincipal currentUserPrincipal) {
+    public List<FileResponse> getUserPrivateFiles(Long folderId, String search, String keyword, Integer order, Integer page, Integer limit, UserPrincipal currentUserPrincipal) {
         Long userId = currentUserPrincipal.getId();
+        String query = StringUtils.hasText(search) ? search : keyword;
 
         List<FileItem> files;
-        if (StringUtils.hasText(search)) {
-            files = fileItemRepository.searchPrivateFiles(userId, StorageType.PRIVATE, search.trim());
+        if (StringUtils.hasText(query)) {
+            files = fileItemRepository.searchPrivateFiles(userId, StorageType.PRIVATE, query.trim());
         } else if (folderId != null) {
             files = fileItemRepository.findByUserIdAndStorageTypeAndFolderIdOrderByOriginalFilenameAsc(userId, StorageType.PRIVATE, folderId);
         } else {
             files = fileItemRepository.findByUserIdAndStorageTypeAndFolderIsNullOrderByOriginalFilenameAsc(userId, StorageType.PRIVATE);
         }
 
-        return files.stream()
+        List<FileResponse> responseList = files.stream()
                 .map(this::mapToFileResponse)
                 .collect(Collectors.toList());
+
+        sortFiles(responseList, order);
+        return paginateList(responseList, page, limit);
     }
 
     @Transactional(readOnly = true)
-    public List<FileResponse> getSharedFiles(String search) {
+    public List<FileResponse> getSharedFiles(String search, String keyword, Integer order, Integer page, Integer limit) {
+        String query = StringUtils.hasText(search) ? search : keyword;
+
         List<FileItem> files;
-        if (StringUtils.hasText(search)) {
-            files = fileItemRepository.searchSharedFiles(StorageType.SHARED_UPLOADS, search.trim());
+        if (StringUtils.hasText(query)) {
+            files = fileItemRepository.searchSharedFiles(StorageType.SHARED_UPLOADS, query.trim());
         } else {
             files = fileItemRepository.findByStorageTypeOrderByCreatedAtDesc(StorageType.SHARED_UPLOADS);
         }
 
-        return files.stream()
+        List<FileResponse> responseList = files.stream()
                 .map(this::mapToFileResponse)
                 .collect(Collectors.toList());
+
+        sortFiles(responseList, order);
+        return paginateList(responseList, page, limit);
+    }
+
+    private void sortFiles(List<FileResponse> list, Integer order) {
+        if (order == null) order = 3;
+        switch (order) {
+            case 1: // Name ASC
+                list.sort((a, b) -> a.getOriginalFilename().compareToIgnoreCase(b.getOriginalFilename()));
+                break;
+            case 2: // Name DESC
+                list.sort((a, b) -> b.getOriginalFilename().compareToIgnoreCase(a.getOriginalFilename()));
+                break;
+            case 4: // Date ASC
+                list.sort((a, b) -> {
+                    if (a.getCreatedAt() == null || b.getCreatedAt() == null) return 0;
+                    return a.getCreatedAt().compareTo(b.getCreatedAt());
+                });
+                break;
+            case 3: // Date DESC (Default)
+            default:
+                list.sort((a, b) -> {
+                    if (a.getCreatedAt() == null || b.getCreatedAt() == null) return 0;
+                    return b.getCreatedAt().compareTo(a.getCreatedAt());
+                });
+                break;
+        }
+    }
+
+    private <T> List<T> paginateList(List<T> list, Integer page, Integer limit) {
+        if (page == null || page < 1) page = 1;
+        if (limit == null || limit < 1) limit = 20;
+
+        int fromIndex = (page - 1) * limit;
+        if (fromIndex >= list.size()) {
+            return List.of();
+        }
+        int toIndex = Math.min(fromIndex + limit, list.size());
+        return list.subList(fromIndex, toIndex);
     }
 
     @Transactional(readOnly = true)

@@ -18,6 +18,8 @@ public interface FolderRepository extends JpaRepository<Folder, Long> {
 
     Optional<Folder> findByIdAndUserId(Long id, Long userId);
 
+    Optional<Folder> findByIdAndVisibility(Long id, com.reserve.backend.entity.Visibility visibility);
+
     boolean existsByNameAndUserIdAndParentFolder(String name, Long userId, Folder parentFolder);
 
     boolean existsByNameAndUserIdAndParentFolderIsNull(String name, Long userId);

@@ -10,4 +10,6 @@ public class FolderRequest {
     private String name;
 
     private Long parentId;
+
+    private String visibility; // PUBLIC or PRIVATE
 }

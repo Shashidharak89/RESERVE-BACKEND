@@ -17,6 +17,8 @@ public class FolderResponse {
     private String name;
     private Long parentId;
     private String parentName;
+    private com.reserve.backend.entity.Visibility visibility;
+    private Boolean isOwner;
     private List<FolderResponse> subFolders;
     private List<FileResponse> files;
     private LocalDateTime createdAt;

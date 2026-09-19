@@ -37,8 +37,12 @@ public class FileController {
     @GetMapping
     public ResponseEntity<ApiResponse<List<FileResponse>>> getFiles(@RequestParam(value = "folderId", required = false) Long folderId,
                                                                      @RequestParam(value = "search", required = false) String search,
+                                                                     @RequestParam(value = "keyword", required = false) String keyword,
+                                                                     @RequestParam(value = "order", required = false, defaultValue = "3") Integer order,
+                                                                     @RequestParam(value = "page", required = false, defaultValue = "1") Integer page,
+                                                                     @RequestParam(value = "limit", required = false, defaultValue = "20") Integer limit,
                                                                      @AuthenticationPrincipal UserPrincipal currentUser) {
-        List<FileResponse> files = fileService.getUserPrivateFiles(folderId, search, currentUser);
+        List<FileResponse> files = fileService.getUserPrivateFiles(folderId, search, keyword, order, page, limit, currentUser);
         return ResponseEntity.ok(ApiResponse.success("Files retrieved successfully", files));
     }
 

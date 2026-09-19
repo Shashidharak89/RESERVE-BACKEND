@@ -32,8 +32,12 @@ public class FolderController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<FolderResponse>>> getFolders(@RequestParam(required = false) Long parentId,
+                                                                         @RequestParam(required = false) String keyword,
+                                                                         @RequestParam(required = false, defaultValue = "3") Integer order,
+                                                                         @RequestParam(required = false, defaultValue = "1") Integer page,
+                                                                         @RequestParam(required = false, defaultValue = "20") Integer limit,
                                                                          @AuthenticationPrincipal UserPrincipal currentUser) {
-        List<FolderResponse> folders = folderService.getUserFolders(parentId, currentUser);
+        List<FolderResponse> folders = folderService.getUserFolders(parentId, keyword, order, page, limit, currentUser);
         return ResponseEntity.ok(ApiResponse.success("Folders retrieved successfully", folders));
     }
 
@@ -42,6 +46,13 @@ public class FolderController {
                                                                         @AuthenticationPrincipal UserPrincipal currentUser) {
         FolderResponse response = folderService.getFolderDetails(id, currentUser);
         return ResponseEntity.ok(ApiResponse.success("Folder details retrieved successfully", response));
+    }
+
+    @GetMapping("/public/{id}")
+    public ResponseEntity<ApiResponse<FolderResponse>> getPublicFolderDetails(@PathVariable Long id,
+                                                                               @AuthenticationPrincipal UserPrincipal currentUser) {
+        FolderResponse response = folderService.getPublicFolderDetails(id, currentUser);
+        return ResponseEntity.ok(ApiResponse.success("Public folder details retrieved successfully", response));
     }
 
     @PutMapping("/{id}")
