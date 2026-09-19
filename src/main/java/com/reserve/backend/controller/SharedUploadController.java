@@ -54,4 +54,10 @@ public class SharedUploadController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + response.getOriginalFilename() + "\"")
                 .build();
     }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<ApiResponse<Void>> deleteSharedFile(@PathVariable Long id) {
+        fileService.deleteSharedFile(id);
+        return ResponseEntity.ok(ApiResponse.success("Shared file deleted successfully"));
+    }
 }

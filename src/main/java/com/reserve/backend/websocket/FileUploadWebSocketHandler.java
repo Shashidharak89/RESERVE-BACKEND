@@ -90,9 +90,8 @@ public class FileUploadWebSocketHandler extends TextWebSocketHandler {
             }
         }
 
-        if (!isShared && userPrincipal == null) {
-            sendError(session, uploadId, "Authentication required to upload to private vault. Please log in or select Public Shared Upload.");
-            return;
+        if (userPrincipal == null) {
+            isShared = true;
         }
 
         UploadSession uploadSession = UploadSession.builder()
