@@ -15,11 +15,14 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import com.reserve.backend.repository.FileItemRepository;
+
 @Service
 @RequiredArgsConstructor
 public class FolderService {
 
     private final FolderRepository folderRepository;
+    private final FileItemRepository fileItemRepository;
     private final AuthService authService;
     private final CloudinaryService cloudinaryService;
 
@@ -181,6 +184,63 @@ public class FolderService {
         folder.setParentFolder(targetParent);
         Folder updated = folderRepository.save(folder);
         return mapToFolderResponse(updated, false, currentUserPrincipal);
+    }
+
+    @Transactional
+    public FolderResponse copyFolderToPrivate(Long folderId, FolderMoveRequest request, UserPrincipal currentUserPrincipal) {
+        User currentUser = authService.getCurrentUserEntity(currentUserPrincipal);
+        Folder sourceFolder = folderRepository.findById(folderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Folder not found"));
+
+        boolean isOwner = sourceFolder.getUser() != null && sourceFolder.getUser().getId().equals(currentUser.getId());
+        if (sourceFolder.getVisibility() != com.reserve.backend.entity.Visibility.PUBLIC && !isOwner) {
+            throw new ResourceNotFoundException("Folder not found or access denied");
+        }
+
+        Folder targetParent = null;
+        if (request != null && request.getTargetParentId() != null) {
+            targetParent = folderRepository.findByIdAndUserId(request.getTargetParentId(), currentUser.getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Target folder not found or access denied"));
+        }
+
+        Folder copiedRoot = copyFolderRecursively(sourceFolder, targetParent, currentUser);
+        return mapToFolderResponse(copiedRoot, true, currentUserPrincipal);
+    }
+
+    private Folder copyFolderRecursively(Folder source, Folder parentInTarget, User currentUser) {
+        Folder newFolder = Folder.builder()
+                .name(source.getName())
+                .user(currentUser)
+                .parentFolder(parentInTarget)
+                .visibility(com.reserve.backend.entity.Visibility.PRIVATE)
+                .build();
+        Folder savedFolder = folderRepository.save(newFolder);
+
+        if (source.getFiles() != null) {
+            for (FileItem file : source.getFiles()) {
+                FileItem copiedFile = FileItem.builder()
+                        .originalFilename(file.getOriginalFilename())
+                        .storedFilename(file.getStoredFilename())
+                        .mimeType(file.getMimeType())
+                        .fileSize(file.getFileSize())
+                        .cloudinaryUrl(file.getCloudinaryUrl())
+                        .cloudinaryPublicId(file.getCloudinaryPublicId())
+                        .resourceType(file.getResourceType())
+                        .storageType(com.reserve.backend.entity.StorageType.PRIVATE)
+                        .folder(savedFolder)
+                        .user(currentUser)
+                        .build();
+                fileItemRepository.save(copiedFile);
+            }
+        }
+
+        if (source.getSubFolders() != null) {
+            for (Folder sub : source.getSubFolders()) {
+                copyFolderRecursively(sub, savedFolder, currentUser);
+            }
+        }
+
+        return savedFolder;
     }
 
     @Transactional

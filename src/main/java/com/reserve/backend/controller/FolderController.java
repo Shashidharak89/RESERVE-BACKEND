@@ -71,6 +71,15 @@ public class FolderController {
         return ResponseEntity.ok(ApiResponse.success("Folder moved successfully", response));
     }
 
+    @PostMapping("/copy/{id}")
+    public ResponseEntity<ApiResponse<FolderResponse>> copyFolder(@PathVariable Long id,
+                                                                   @RequestBody(required = false) FolderMoveRequest request,
+                                                                   @AuthenticationPrincipal UserPrincipal currentUser) {
+        FolderResponse response = folderService.copyFolderToPrivate(id, request, currentUser);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Folder recursively copied to your private vault", response));
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<Void>> deleteFolder(@PathVariable Long id,
                                                            @AuthenticationPrincipal UserPrincipal currentUser) {
