@@ -79,10 +79,13 @@ public class FileUploadWebSocketHandler extends TextWebSocketHandler {
         String mimeType = node.has("mimeType") ? node.get("mimeType").asText() : "application/octet-stream";
         boolean isShared = node.has("isShared") && node.get("isShared").asBoolean();
         Long folderId = (node.has("folderId") && !node.get("folderId").isNull()) ? node.get("folderId").asLong() : null;
-        String token = node.has("token") ? node.get("token").asText() : null;
+        String token = (node.has("token") && !node.get("token").isNull()) ? node.get("token").asText() : null;
+        if ("null".equalsIgnoreCase(token) || (token != null && token.isBlank())) {
+            token = null;
+        }
 
         UserPrincipal userPrincipal = null;
-        if (token != null && !token.isBlank() && jwtTokenProvider.validateToken(token)) {
+        if (token != null && jwtTokenProvider.validateToken(token)) {
             String username = jwtTokenProvider.getUsernameFromJWT(token);
             UserDetails userDetails = customUserDetailsService.loadUserByUsername(username);
             if (userDetails instanceof UserPrincipal) {

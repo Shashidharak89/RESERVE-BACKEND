@@ -54,7 +54,7 @@ public class FileService {
         PublicUpload publicUpload = PublicUpload.builder()
                 .originalFilename(originalFilename)
                 .storedFilename(publicId)
-                .mimeType(file.getContentType())
+                .mimeType(file.getContentType() != null ? file.getContentType() : "application/octet-stream")
                 .fileSize(file.getSize())
                 .cloudinaryUrl(cloudinaryUrl)
                 .cloudinaryPublicId(publicId)
